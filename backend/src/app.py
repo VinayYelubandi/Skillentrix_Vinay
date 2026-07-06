@@ -3,17 +3,40 @@ import json
 import joblib
 import pandas as pd
 import numpy as np
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 import shap
 
 app = Flask(__name__)
-CORS(app) # Enable CORS for all routes
+CORS(app)
 
 # Paths
+# Paths
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+PROJECT_DIR = os.path.dirname(BASE_DIR)
+
+FRONTEND_DIR = os.path.join(PROJECT_DIR, "frontend")    
 MODEL_DIR = os.path.join(BASE_DIR, "models")
 METRICS_PATH = os.path.join(MODEL_DIR, "metrics.json")
+MODEL_DIR = os.path.join(BASE_DIR, "models")
+METRICS_PATH = os.path.join(MODEL_DIR, "metrics.json")
+
+@app.route("/styles.css")
+def styles():
+    return send_from_directory(FRONTEND_DIR, "styles.css")
+
+
+@app.route("/app.js")
+def app_js():
+    return send_from_directory(FRONTEND_DIR, "app.js")
+
+
+@app.route("/firebase-config.js")
+def firebase_config():
+    return send_from_directory(FRONTEND_DIR, "firebase-config.js")
+@app.route("/")
+def home():
+    return send_from_directory(FRONTEND_DIR, "index.html")
 
 # Global variables for models and preprocessors
 model = None

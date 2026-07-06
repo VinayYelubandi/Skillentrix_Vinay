@@ -52,15 +52,20 @@ async function checkHealth() {
         const response = await fetch(`${API_URL}/health`);
         const data = await response.json();
         
-        if (data.status === 'healthy') {
-            dot.className = 'status-indicator online';
-            text.textContent = "Backend: Connected";
-            
-            if (!isBackendOnline) {
-                isBackendOnline = true;
-                initializeDashboard();
-            }
-        } else {
+            if (data.status === 'healthy') {
+                dot.className = 'status-indicator online';
+                text.textContent = "Backend: Connected";
+
+                // Only initialize dashboard when required artifacts are present
+                const artifacts = data.artifacts_loaded || {};
+                if (!isBackendOnline && (artifacts.model && artifacts.metrics)) {
+                    isBackendOnline = true;
+                    initializeDashboard();
+                } else {
+                    // Mark backend online even if artifacts are not yet ready
+                    isBackendOnline = true;
+                }
+            } else {
             throw new Error("Backend reported unhealthy status");
         }
     } catch (error) {
@@ -82,7 +87,7 @@ async function initializeDashboard() {
         // Fetch EDA Summary
         const summaryRes = await fetch(`${API_URL}/summary`);
         if (summaryRes.ok) {
-            const summary = await summaryRes.ok ? await summaryRes.json() : null;
+            const summary = await summaryRes.json();
             if (summary) populateEDA(summary);
         }
         
@@ -110,7 +115,7 @@ function populateEDA(data) {
     if (contractChart) contractChart.destroy();
     
     const contractLabels = Object.keys(data.contract_split);
-    const contractValues = Object.values(data.contract_split).map(v => (v * 100).toFixed(1));
+    const contractValues = Object.values(data.contract_split).map(v => Number((v * 100).toFixed(1)));
     
     contractChart = new Chart(ctxContract, {
         type: 'bar',
@@ -144,7 +149,7 @@ function populateEDA(data) {
     if (internetChart) internetChart.destroy();
     
     const internetLabels = Object.keys(data.internet_split);
-    const internetValues = Object.values(data.internet_split).map(v => (v * 100).toFixed(1));
+    const internetValues = Object.values(data.internet_split).map(v => Number((v * 100).toFixed(1)));
     
     internetChart = new Chart(ctxInternet, {
         type: 'doughnut',
@@ -360,19 +365,37 @@ form.addEventListener('submit', async (e) => {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
         });
+        if (!predictRes.ok) {
+            const errText = await predictRes.text();
+            throw new Error(errText || "Prediction failed");
+        }
         const predictData = await predictRes.json();
-        
-        if (!predictRes.ok) throw new Error(predictData.error || "Prediction failed");
-        
-        // 2. Fetch SHAP Explanations
-        const explainRes = await fetch(`${API_URL}/explain`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        });
-        const explainData = await explainRes.json();
-        
-        if (!explainRes.ok) throw new Error(explainData.error || "SHAP calculation failed");
+        console.log("Before Firestore");
+
+await db.collection("predictions").add({
+    ...payload,
+    churn_probability: predictData.churn_probability,
+    prediction: predictData.prediction_label,
+    createdAt: firebase.firestore.FieldValue.serverTimestamp()
+});
+
+console.log("Prediction saved to Firestore");
+
+// 2. Fetch SHAP Explanations
+const explainRes = await fetch(`${API_URL}/explain`, {
+    method: 'POST',
+    headers: {
+        'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(payload)
+});
+
+if (!explainRes.ok) {
+    const errText = await explainRes.text();
+    throw new Error(errText || "SHAP calculation failed");
+}
+
+const explainData = await explainRes.json();
         
         // Show cards
         document.getElementById('result-container').classList.remove('hide');
